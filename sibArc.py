@@ -17,13 +17,14 @@ mpl.use("Cairo")
 
 
 class SibProgress:
-    def __init__(self, args, command_line, ACTIVE=True):
+    def __init__(self, args, command_line):
         self.args = args
-        self.ACTIVE = ACTIVE 
+        if args.silent: self.ACTIVE = False 
+        else:           self.ACTIVE = True 
         self.initialize(command_line) 
 
     def initialize(self, command_line):  
-        self.out1  = open(self.args.out+'.progress.log','w') 
+        #self.out1  = open(self.args.out+'.progress.log','w') 
         self.out2  = sys.stderr 
         self.space = '' 
         self.show('\nSibArc Begins: '+command_line+'\n')
@@ -37,7 +38,7 @@ class SibProgress:
         if space == 'NA': myspace = '' 
         else:             myspace = self.space
 
-        self.out1.write(myspace+msg) 
+        #self.out1.write(myspace+msg) 
         if self.ACTIVE: 
             self.out2.write(myspace+msg)
             self.out2.flush() 
@@ -82,7 +83,7 @@ class SibPlot:
             1.*i/float(len(self.herits))) for i in range(len(self.herits))]
         self.color_key = {h: c for h, c in zip(self.herits, self.h_colors)}
 
-    def draw_summary_table(self, pairs, bH, tests):
+    def draw_summary_table(self, pairs, bH, tests, CUTOFF=0.01):
         self.bH, s1, s2, s_len = bH, [], [], [] 
         X = sorted(pairs.keys())
         for x in X:
@@ -104,8 +105,12 @@ class SibPlot:
 
         if round(max(abs(lp[0]), lp[-1])+0.05, 1) < 1.5:   yMax = 1.5
         elif round(max(abs(lp[0]), lp[-1])+0.05, 1) < 1.8: yMax = 1.8
-        else:                                              yMax = 2
-        if self.args.name is not None: self.ax.text(0, yMax*0.96, self.name, ha='left',va='top', fontsize=30, fontweight='bold')
+        elif round(max(abs(lp[0]), lp[-1])+0.05, 1) < 2:   yMax = 2.0
+        elif round(max(abs(lp[0]), lp[-1])+0.05, 1) < 2.2: yMax = 2.2
+        elif round(max(abs(lp[0]), lp[-1])+0.05, 1) < 2.4: yMax = 2.4
+        elif round(max(abs(lp[0]), lp[-1])+0.05, 1) < 2.6: yMax = 2.6
+        elif round(max(abs(lp[0]), lp[-1])+0.05, 1) < 2.8: yMax = 2.8
+        else:                                              yMax = 3
 
         sE = [(s*self.bH)/2.0 for s in s1]
         self.ax.plot(X, sE, color='k', linewidth=2, alpha=1.0, zorder=2)
@@ -114,19 +119,33 @@ class SibPlot:
             if x > 1 and x < 99:
                 self.ax.scatter(x, y, s=25, alpha=0.75,marker='o', color='grey', edgecolor='k', zorder=50)
         self.ax.scatter(0, tests['0']['NOVO'].exp, edgecolor='k', marker='v', zorder=100,facecolor='whitesmoke', linewidth=2.5, s=200, clip_on=False)
-        self.ax.scatter(99, tests['99']['NOVO'].exp, edgecolor='k', marker='v', zorder=100,facecolor='whitesmoke', linewidth=2.5, s=200, clip_on=False)
+        self.ax.scatter(99, tests['99']['NOVO'].exp, edgecolor='k', marker='^', zorder=100,facecolor='whitesmoke', linewidth=2.5, s=200, clip_on=False)
         
         for loc in ['0','99']: 
             nT,mT,dT = tests[loc]['NOVO'], tests[loc]['MEND'], tests[loc]['DIST'] 
+            
+            if abs(nT.obs) > yMax: yMax = abs(nT.obs)+0.5
+
             pvs = sorted([[nT.pv,nT,'NOVO'],[mT.pv,mT,'MEND'],[dT.pv,dT,'DIST']])
-            if pvs[0][0] > 0.05:  self.ax.scatter(int(loc), nT.obs, edgecolor='k', marker='h', zorder=100,facecolor='grey', linewidth=2.5, s=200, clip_on=False)
-            else: 
-                if pvs[0][-1] == 'NOVO': 
-                    if pvs[1][0] > 0.05: myClr = 'lime' 
-                    else:                myClr = 'green' 
-                elif pvs[1][0] > 0.05 and pvs[0][-1] == 'MEND': myClr = 'red' 
-                else:                                           myClr = 'purple' 
+            if pvs[0][0] > CUTOFF:  self.ax.scatter(int(loc), nT.obs, edgecolor='k', marker='h', zorder=100,facecolor='grey', linewidth=2.5, s=200, clip_on=False)
+            elif pvs[1][0] > CUTOFF: 
+                if pvs[0][-1] == 'NOVO': myClr = 'lime' 
+                elif pvs[0][-1] == 'MEND': myClr = 'red' 
+                else:                    myClr = 'purple' 
                 self.ax.scatter(int(loc), nT.obs, edgecolor='k', marker='h', zorder=100,facecolor=myClr, linewidth=2.5, s=200, clip_on=False)
+            else: 
+                if "-".join(sorted([pvs[0][-1],pvs[1][-1]])) == 'MEND-NOVO': myClr = 'purple' 
+                elif pvs[0][-1] == 'NOVO': myClr = 'lime' 
+                elif pvs[0][-1] == 'MEND': myClr = 'red' 
+                else:                      myClr = 'purple' 
+
+                self.ax.scatter(int(loc), nT.obs, edgecolor='k', marker='h', zorder=100,facecolor=myClr, linewidth=2.5, s=200, clip_on=False)
+                
+
+        if self.args.name is not None: self.ax.text(0, yMax*0.96, self.args.name, ha='left',va='top', fontsize=30, fontweight='bold')
+
+
+
         self.reset_fig(yMax) 
         return
 
@@ -155,7 +174,8 @@ class SibPlot:
 
 
 class SibData:
-    def __init__(self, file_handle):
+    def __init__(self, file_handle, args):
+        self.args = args 
         self.fams, self.members = [], []
         self.read_file(file_handle)
         self.collate()
@@ -163,16 +183,27 @@ class SibData:
 
 
     def read_file(self, file_handle):
-        for i, line in enumerate(file_handle):
-            line = line.split(",")
-            try:
-                k1, k2 = Kid(float(line[0]), str(float(i))), Kid(float(line[1]), str(i+0.5))
-            except ValueError:
-                if i == 0:
-                    continue
-                else:
-                    raise Exception('Incorrect File Format')
+        first_line = file_handle.readline()
+        if len(first_line.split()) == 2:      
+            SPLIT='WHITESPACE' 
+            line = first_line.split() 
+        elif len(first_line.split(',')) == 2: 
+            SPLIT='COMMA'
+            line = first_line.split(',') 
+        else:
+            sys.stderr.write('Incorrect File Format\nUnrecognized Line: '+first_line) 
+            sys.exit() 
+        try:     
+            k1, k2 = Kid(float(line[0]), str(float(i))), Kid(float(line[1]), str(i+0.5))
+            self.fams.append([k1, k2])
+            self.members.extend([k1, k2])
+        except: pass 
 
+        for i,line in enumerate(file_handle): 
+            if     SPLIT == 'COMMA': line = line.split(',') 
+            else:                    line = line.split() 
+            try:               k1, k2 = Kid(float(line[0]), str(float(i))), Kid(float(line[1]), str(i+0.5))
+            except ValueError: raise Exception('Incorrect File Format')
             self.fams.append([k1, k2])
             self.members.extend([k1, k2])
         self.total = len(self.members)
@@ -188,7 +219,7 @@ class SibData:
         self.pairs = dd(lambda: dd(list))
         for k1, k2 in self.fams:
             kids = [k1, k2]
-            random.shuffle(kids)
+            if self.args.randomize: random.shuffle(kids)
             rank = kids[0].rank
             self.pairs['vals'][kids[0].rank].append([kids[0].val, kids[1].val])
             self.pairs['norm'][kids[0].rank].append([kids[0].z, kids[1].z])
@@ -248,10 +279,8 @@ class TailTests:
         return my_data
 
     def calculate(self):
-        lower_tail = [[0],   [0, 1], [0, 1, 2],  [
-            0, 1, 3],  [0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]]
-        upper_tail = [[99], [98, 99], [97, 98, 99], [96, 97, 98, 99], [
-            95, 96, 97, 98, 99], [94, 95, 96, 97, 98, 99]]
+        lower_tail = [[0],   [0, 1], [0, 1, 2],  [0, 1, 3],  [0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]]
+        upper_tail = [[99], [98, 99], [97, 98, 99], [96, 97, 98, 99], [95, 96, 97, 98, 99], [94, 95, 96, 97, 98, 99]]
         tail_locs = [0 for lt in lower_tail] + [1 for ut in upper_tail]
 
         #bodyH = self.h2['Bod'][1]
@@ -270,11 +299,10 @@ class TailTests:
             
             if loc == 0: index_sib = index_sibs[-1] 
             else:        index_sib = index_sibs[0] 
-            
-            
             RES[vs]['NOVO'] = TailTest(loc,index_sib).run_novo(my_data, self.h2, my_var, my_std)
             RES[vs]['MEND'] = TailTest(loc,index_sib).run_mend(my_data, self.h2, my_var, my_std)
             RES[vs]['DIST'] = TailTest(loc,index_sib).run_dist(my_data, self.h2, my_var, my_std)
+
 
         return RES
 
@@ -312,10 +340,11 @@ class TailTest:
         self.U = SS / h_var
         self.I = (-1*len(tail_data)) / h_var
         self.Z = SS / (len(tail_data)*h_var)**0.5
-        if self.side != 'lower':
-            self.pv = stats.norm.cdf(self.Z)
-        else:
-            self.pv = 1 - stats.norm.cdf(self.Z)
+        if self.side != 'lower': self.pv = stats.norm.cdf(self.Z)
+        else:                    self.pv = 1 - stats.norm.cdf(self.Z)
+
+        
+
         return self
 
     def run_mend(self, tail_data, h2, h_var, h_std):
@@ -336,15 +365,16 @@ class TailTest:
         self.Z = (r - n*pi) / (n*pi*(1-pi))**0.5
         self.exp = round(n*pi,4) 
         self.obs = r
-        self.pv = 1 - stats.norm.cdf(self.Z)
-        if self.pv < 0.01 and self.obs - self.exp < 2:
-            self.pv = 0.1 + random.random()/2.0
+        
+        self.pv = stats.norm.cdf(-1*self.Z)
+
+        if self.pv < 0.01 and self.obs - self.exp < 2: self.pv = 0.1 + random.random()/2.0
         return self
 
 
 
 class TailMax: 
-    def __init__(self, side, tail_data, h2, h_var, h_std, mend_std = 0.1): 
+    def __init__(self, side, tail_data, h2, h_var, h_std, mend_std = 0.5): 
         self.side = side 
         self.tail_data, self.h2, self.h_var, self.h_std = tail_data, h2, h_var, h_std 
         self.cnts, self.probs = [0.0,0.0,0.0], [] 
@@ -361,7 +391,7 @@ class TailMax:
         for i,nv in enumerate(P): 
             ld = [] 
             for j,mv in enumerate([p for p in P if p < 1-nv]): 
-                rates = [nv, mv, round(1 - (nv+mv),2)] 
+                rates = [nv, mv, round(1 - (nv+mv),2)]  
                 like = self.get_log_like(rates) 
                 ld.append([like, rates]) 
             AD.append(sorted(ld)[0]) 
@@ -487,8 +517,11 @@ class ConditionalHeritability:
 
 
 class SibAnalysis:
-    def __init__(self, name, args, progress, pairs, pts): 
-        self.out_prefix, self.args, self.progress, self.pairs, self.pts = args.out+'.'+name, args, progress, pairs, pts
+    def __init__(self, args, progress, pairs, pts, name=None): 
+        
+        self.out_prefix, self.args, self.progress, self.pairs, self.pts = args.out, args, progress, pairs, pts 
+        if name is not None: self.out_prefix+='.'+name 
+
         
          
          
@@ -534,7 +567,7 @@ class SibAnalysis:
             w.write('%-7s %24s %24s %24s %24s\n' % (r,size,h2_init,h2_iter,h2_err)) 
         w.close() 
         w = open(self.out_prefix+'.result.out','w')
-        tails = ['0', '0-1', '0-2', '0-3', '96-99','97-99','98-99','99'] 
+        tails = ['0', '0-1', '0-2', '0-3', '0-4','95-99','96-99','97-99','98-99','99'] 
         w.write('%-7s %9s %10s %10s ' % ('tail', 'size', 'index_sib', 'ks-pv')) 
         w.write('%14s %12s %12s ' % ('novo_pv','novo_obs','novo_exp')) 
         w.write('%14s %12s %12s ' % ('mend_pv','mend_obs','mend_exp')) 
@@ -547,11 +580,11 @@ class SibAnalysis:
             n_pv, m_pv, d_pv = nv.pv, md.pv, dt.pv 
             n_exp, n_obs = nv.exp, nv.obs
             m_exp, m_obs = md.exp, md.obs
-            if dt.pv < 0.5:     w.write('%-7s %9s %10.5f %10.2e ' % (t, tail_size, index_sib, dt.pv)) 
+            if dt.pv < 0.0001:     w.write('%-7s %9s %10.5f %10.2e ' % (t, tail_size, index_sib, dt.pv)) 
             else:               w.write('%-7s %9s %10.5f %10.5f ' % (t, tail_size, index_sib, dt.pv))
-            if nv.pv < 0.05:    w.write('%14.4e %12.5f %12.5f ' % (nv.pv, nv.obs, nv.exp)) 
+            if nv.pv < 0.0001:    w.write('%14.2e %12.5f %12.5f ' % (nv.pv, nv.obs, nv.exp)) 
             else:               w.write('%14.5f %12.5f %12.5f ' % (nv.pv, nv.obs, nv.exp)) 
-            if md.pv < 0.05:    w.write('%14.2e %12d %12.5f ' % (md.pv, md.obs, md.exp)) 
+            if md.pv < 0.0001:    w.write('%14.2e %12d %12.5f ' % (md.pv, md.obs, md.exp)) 
             else:               w.write('%14.5f %12d %12.5f ' % (md.pv, md.obs, md.exp)) 
             w.write('%12.3f %12.3f %12.3f' % (dt.n_rate, dt.m_rate, dt.p_rate)) 
             w.write('\n') 
@@ -563,13 +596,21 @@ def run_script(file_handle, args, command_line):
     if args.out is None: args.out = 'tailArc.'+file_handle.name.split('/')[-1].split('.')[0].split('-')[0]
     progress = SibProgress(args,command_line) 
     progress.update('Reading Sibling Data') 
-    fd = SibData(file_handle)
+    fd = SibData(file_handle, args)
+    
+
+    #progress.start('Analyzing Input Values') 
+    #vA = SibAnalysis('input',args, progress, fd.pairs['vals'], fd.data['vals']).go() 
+    #progress.start('Analyzing Normalized Values') 
+    #nA = SibAnalysis('normalized',args, progress, fd.pairs['norm'], fd.data['norm']).go() 
+
+
     if not args.normalize: 
         progress.start('Analyzing Input Values') 
-        vA = SibAnalysis('input',args, progress, fd.pairs['vals'], fd.data['vals']).go() 
+        vA = SibAnalysis(args, progress, fd.pairs['vals'], fd.data['vals']).go() 
     else: 
         progress.start('Analyzing Normalized Values') 
-        nA = SibAnalysis('normalized',args, progress, fd.pairs['norm'], fd.data['norm']).go() 
+        nA = SibAnalysis(args, progress, fd.pairs['norm'], fd.data['norm'], 'normalized').go() 
     progress.finish() 
     
 
@@ -580,11 +621,13 @@ if __name__ == '__main__':
     usage = "usage: ./%prog [options] data_file"
     parser = argparse.ArgumentParser() 
     parser.add_argument('sibfile',type=argparse.FileType('r')) 
-    parser.add_argument("--out", type=str,help="Output file prefix")
-    parser.add_argument("--name", type=str,help="Output file prefix")
-    parser.add_argument("--savePlot", action='store_true', default=False,help="Whether we should generate the plots")
+    parser.add_argument("--out", type=str,help="Output Prefix")
+    parser.add_argument("--name", type=str,help="Trait Name")
+    parser.add_argument("--savePlot", action='store_true', default=False,help="Save Plots")
     parser.add_argument("--savePlotData", action='store_true', default=False,help="Save Plotting Data") 
-    parser.add_argument("--normalize", action='store_true', default=False,help="Renormalize Data") 
+    parser.add_argument("--normalize", action='store_true', default=False,help="Rank Inverse Normal Transform Data (For NonNormal Input)") 
+    parser.add_argument("--silent", action='store_true', default=False,help="Suppress Output Stream") 
+    parser.add_argument("--randomize", action='store_true', default=False,help="Randomize Siblings") 
     args = parser.parse_args() 
     run_script(args.sibfile, args, ' '.join(sys.argv)) 
 
