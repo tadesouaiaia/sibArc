@@ -921,15 +921,15 @@ class SibAnalysis:
 
 def run_script(file_handles, args, command_line):
 
-    NAMES = ['48','30030','30070','78','30720','20015','30610'] 
-    NK = {'30030': 'Reticulocyte_Count','30610': 'Alkaline_Phosphatase', '78': 'Heel_Bone_Mineral_Density_(BMD)', '30720': 'Cystatin_C','48': 'Waist_Circumference', '20015': 'Sitting_Height', '30070': 'RBC_Distribution_Width'}
+    #NAMES = ['48','30030','30070','78','30720','20015','30610'] 
+    #NK = {'30030': 'Reticulocyte_Count','30610': 'Alkaline_Phosphatase', '78': 'Heel_Bone_Mineral_Density_(BMD)', '30720': 'Cystatin_C','48': 'Waist_Circumference', '20015': 'Sitting_Height', '30070': 'RBC_Distribution_Width'}
     progress = SibProgress(args,command_line) 
 
     if len(args.names) < len(args.sibfiles): 
         for i,sf in enumerate(args.sibfiles): 
             if i < len(args.names): continue 
-            elif sf.name.split('/')[-1].split('-')[0] in NAMES: 
-                args.names.append(NK[sf.name.split('/')[-1].split('-')[0]]) 
+            #elif sf.name.split('/')[-1].split('-')[0] in NAMES: 
+            #    args.names.append(NK[sf.name.split('/')[-1].split('-')[0]]) 
             #elif 5 < 8: args.names.append(NK[NAMES[i]]) 
             elif len(sf.name.split('/')[-1].split('.')) > 1: args.names.append(".".join(sf.name.split('/')[-1].split('.')[0:-1]).split('-')[0]) 
             else:                                            args.names.append(sf.name.split('/')[-1].split('-')[0]) 
