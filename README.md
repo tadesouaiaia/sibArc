@@ -5,13 +5,12 @@ Examples:
 
 Within Directory, Type: 
 
-./sibArc.py data/trait1-test.csv --savePlot --out denovoExample
-./sibArc.py data/trait2-test.csv --savePlot --out mendelianExample 
+./sibArc.py data/trait1-test.csv  --out denovoExample
+./sibArc.py data/trait2-test.csv  --out mendelianExample 
 
 
 Outputs Produced: 
 
 
-denovoExample.h2.out, mendelianExample.h2.out:            Sibling Inferred Strata Specific Heritability 
 denovoExample.result.out, mendelianExample.result.out:    Inferred Genetic Architecture in Each Tail 
-denovoExample.fig.png, mendelianExample.fig.png:          Genetic Architecture Plots 
+denovoExample.fig.png/pdf, mendelianExample.fig.png/pdf:          Genetic Architecture Plots 

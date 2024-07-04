@@ -2,6 +2,7 @@
 import sys
 from collections import defaultdict as dd
 import numpy as np
+import scipy 
 from scipy import stats
 import random
 import math
@@ -22,7 +23,9 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-# printi
+def sibError(msg): 
+    sys.stderr.write('SibError: '+msg+'\n') 
+    sys.exit() 
 
 def rage_color_bar(hmap, ax, minv=0,maxv=99,LOW=False,MID=False):                                                                                                                                                                               
     CBAR = plt.cm.ScalarMappable(cmap=hmap, norm=plt.Normalize(vmin = minv, vmax=maxv))                                                                                                                                     
@@ -94,7 +97,7 @@ class SibTable:
             self.add_row(S,X=(0,44),Y=(yL-th,yL), WIDTHS=SW, COLORS=[c2,c2,c2],FS=fs2-1,TITLE=True) 
             self.add_row(S,X=(56,100),Y=(yL-th,yL), WIDTHS=SW, COLORS=[c2,c2,c2],FS=fs2-1,TITLE=True) 
             yL -= yS
-        rd = [tt['0'],tt['99']] 
+        rd = [tt['0-0'],tt['99-99']] 
         D1 = [[r.size,round(r.index_avg,2), r.d_str] for r in rd] 
         D2 = [[round(r.n_exp,3), round(r.n_obs,3), r.n_str] for r in rd] 
         D3 = [[round(r.m_exp,2), int(r.m_obs), r.m_str] for r in rd] 
@@ -157,10 +160,11 @@ class SibProgress:
         self.out2  = sys.stderr 
         self.space = '' 
         self.show('\nSibArc Begins:  '+command_line+'\n')
+        self.show('         Mode:  '+args.mode+'\n') 
         self.show('   Input Files: '+",".join([sf.name.split('/')[-1] for sf in args.sibfiles])+'\n') 
         self.show('Output Prefix: '+self.args.out+'\n\n')
         self.loc = None
-
+        self.spl = '' 
 
     def initialize(self, f_name, t): 
         self.show('Beginning: '+f_name+'\n') 
@@ -185,8 +189,15 @@ class SibProgress:
         self.loc = None 
         self.space = '  '
 
-    def end(self, msg): 
-        if self.loc is not None: self.show('...Finished ('+msg+')\n',space='NA') 
+    def end(self, msg,CHECK=[]): 
+        self.spl += 3 
+        if self.loc is not None: 
+            self.show('...Finished ('+msg+')\n',space='NA') 
+            if len(CHECK) == 2: 
+                ws = ''.join([' ' for z in range(self.spl)]) 
+                if CHECK[0] == 'VDATA': 
+                    if abs(CHECK[1][0]) < 1000: self.show(ws+'Warning: Low sample size (<2k) may be unreliable\n') 
+                    if abs(CHECK[1][1]) > 1 or abs(CHECK[1][1]) > 1: self.show(ws+'Warning: Skew/Kurtosis Suggests Non-Normality (try --normalize)\n') 
         self.loc = None 
         return
 
@@ -198,8 +209,7 @@ class SibProgress:
         if self.loc is not None: self.show('...Finished\n','NA') 
         self.loc = msg 
         self.show(msg+'...') 
-     
-
+        self.spl = len(msg)+3 
 
 
 
@@ -232,8 +242,8 @@ class SibProgress:
 class SibPlot:
     def __init__(self, args, progress):
         self.args, self.progress = args, progress 
-        self.fig_prefix = self.args.out+'.fig' 
-        
+        if not self.args.normalize: self.fig_prefix = self.args.out+'.fig' 
+        else:                       self.fig_prefix = self.args.out+'.normalized.fig' 
         if self.args.savePlotdata:
             self.out = open(self.args.out+'.plotData','w') 
             self.out.write('%-30s %40s %15s %s\n' % ('---', 'name', 'dataType', 'values')) 
@@ -329,14 +339,14 @@ class SibPlot:
         for i, (x, y) in enumerate(zip(self.X[1:-1], self.m2[1:-1])): self.ax.scatter(x, y, s=25, alpha=0.75,marker='o', color='grey', edgecolor='k', zorder=50)
         
 
-        self.yMax = max([self.yMax,abs(self.tt['0'].n_obs), abs(self.tt['99'].n_obs)]) + 0.1 
+        self.yMax = max([self.yMax,abs(self.tt['0-0'].n_obs), abs(self.tt['99-99'].n_obs)]) + 0.1 
         
 
 
-        for loc,mark in zip(['0','99'],['v','^']):            
+        for loc,mark in zip(['0-0','99-99'],['v','^']):            
             tt = self.tt[loc] 
-            self.ax.scatter(int(loc), tt.n_exp, edgecolor='k', marker=mark, zorder=90,facecolor='whitesmoke', linewidth=1.5, s=200, clip_on=False)
-            self.ax.scatter(int(loc), tt.n_obs, edgecolor='k', marker='h', zorder=100,facecolor=tt.clr, linewidth=1.2, s=200, clip_on=False)
+            self.ax.scatter(int(loc.split('-')[0]), tt.n_exp, edgecolor='k', marker=mark, zorder=90,facecolor='whitesmoke', linewidth=1.5, s=200, clip_on=False)
+            self.ax.scatter(int(loc.split('-')[0]), tt.n_obs, edgecolor='k', marker='h', zorder=100,facecolor=tt.clr, linewidth=1.2, s=200, clip_on=False)
         self.ax.set_yticks([-2, -1, 0, 1, 2])
         self.ax.set_xticks([0,20,80,100])
         self.ax.set_xlim(-1.5, 100.5)
@@ -463,7 +473,7 @@ class SibData:
         self.fams, self.members = [], []
         self.read_file(file_handle)
         self.collate()
-        #self.summarize() 
+        self.summarize() 
 
     def read_file(self, file_handle):
         first_line = file_handle.readline()
@@ -495,21 +505,32 @@ class SibData:
 
     def collate(self):
         self.members.sort(key=lambda X: X.val)
+        self.norm_vals = [] 
         for i, k in enumerate(self.members):
             k.z = stats.norm.ppf((i+0.5)/self.total)
             k.rank = int(100*(i+0.5) / self.total)
-
-        self.pairs = dd(lambda: dd(list))
+            self.norm_vals.append(k.z) 
+        self.pair_data = dd(lambda: dd(list))
         for k1, k2 in self.fams:
             kids = [k1, k2]
             if self.args.randomize: random.shuffle(kids)
             rank = kids[0].rank
-            self.pairs['vals'][kids[0].rank].append([kids[0].val, kids[1].val])
-            self.pairs['norm'][kids[0].rank].append([kids[0].z, kids[1].z])
+            self.pair_data['vals'][kids[0].rank].append([kids[0].val, kids[1].val])
+            self.pair_data['norm'][kids[0].rank].append([kids[0].z, kids[1].z])
         return 
 
     def summarize(self): 
-        self.data = dd(lambda: dd(list)) 
+        
+        if self.args.normalize: 
+            self.skew = stats.skew(self.norm_vals) 
+            self.kurtosis = stats.kurtosis(self.norm_vals) 
+            self.pairs = self.pair_data['norm'] 
+        else: 
+            self.skew = stats.skew([m.val for m in self.members])  
+            self.kurtosis = stats.kurtosis([m.val for m in self.members])
+            self.pairs = self.pair_data['vals'] 
+        return
+
         for k, p in self.pairs.items():
             S1,S2 = [], []
             for pt in p.keys():
@@ -542,67 +563,60 @@ class Kid:
 
 
 class TailTests:
-    def __init__(self, args, pairs, h2):
-        self.args, self.pairs, self.h2 = args, pairs, h2
+    def __init__(self, args, pairs, h2, goals = [['0-0',[0],0],['99-99',[99],1]]):
+        self.args, self.pairs, self.h2, self.goals = args, pairs, h2, goals
+        
 
-    def get_data(self, pt, locs=[], ALL=False):
-        my_data = []
-        for loc in locs:
-            my_data.extend(self.pairs[loc])
-        if len(my_data) > 1:
+
+    def get_data(self, pt, locs, vs, ALL=False):
+        k, my_data = 1, []
+        if vs[0] not in ['L','U']:
+            for loc in locs:     my_data.extend(self.pairs[loc])
+            if len(my_data) > 1: return my_data
+            p = 1
+            while len(my_data) < 2:
+                if pt == 0:  my_data.extend(self.pairs[locs[-1]+p])
+                else:        my_data.extend(self.pairs[locs[0]-p])
+                p += 1
             return my_data
-        p = 1
-        while len(my_data) < 2:
-            if pt == 0:
-                my_data.extend(self.pairs[locs[-1]+p])
-            else:
-                my_data.extend(self.pairs[locs[0]-p])
-            p += 1
-        return my_data
+        else:
+            if vs[0] == 'L': 
+                my_data.extend(self.pairs[0]) 
+                while len(my_data) < 8: 
+                    my_data.extend(self.pairs[k][0:8]) 
+                    k+=1
+                my_data.sort()             
+                if   vs == 'L.25': return my_data[0:int(len(my_data)*0.25)] 
+                else:              return my_data[0:int(len(my_data)*0.50)] 
+            else: 
+                my_data.extend(self.pairs[99]) 
+                while len(my_data) < 8: 
+                    my_data.extend(self.pairs[99-k][0:8]) 
+                    k+=1
+                my_data.sort(reverse=True) 
+                if vs == 'U.25': return my_data[0:int(len(my_data)*0.25)]
+                else:            return my_data[0:int(len(my_data)*0.50)] 
 
-    def summarize(self):        
-        self.raw_result = self.calculate() 
-        return self
 
 
 
 
     def calculate(self):
-        lower_tail = [[0],   [0, 1], [0, 1, 2],  [0, 1, 3],  [0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5]]
-        upper_tail = [[99], [98, 99], [97, 98, 99], [96, 97, 98, 99], [95, 96, 97, 98, 99], [94, 95, 96, 97, 98, 99]]
-        tail_locs = [0 for lt in lower_tail] + [1 for ut in upper_tail]
-        my_var = 1 - (self.h2*self.h2)/4.0
-        my_std = my_var ** 0.5
-        
         self.results = {} 
-
-        ###
-        #print()
-        #print() 
-        my_data = sorted(self.get_data(0,[0]))
-        index_sib = sorted([md[0] for md in my_data])[-1]
-        #print(index_sib) 
-        #mendTest  = TailTest(0,index_sib).run_mend(my_data, self.h2, my_var, my_std)
-        ### 
-
-        #sys.exit()  
-
-        for vals, loc in zip(lower_tail+upper_tail, tail_locs):
-            vs = str(vals[0])
-            if vals[-1] != vals[0]:
-                vs += '-'+str(vals[-1])
-            my_data = sorted(self.get_data(loc, vals)) 
+        for vs,vals,loc in self.goals: 
+            if len(vs) > 1 and vals[-1] - vals[0] < 7: h2 = self.h2.body 
+            else:                                      h2 = self.h2.all 
+            my_var = 1 - (h2*h2)/4.0
+            my_std = my_var ** 0.5
+            my_data = sorted(self.get_data(loc, vals, vs)) 
             index_sibs = sorted([md[0] for md in my_data]) 
             if loc == 0: index_sib = index_sibs[-1] 
             else:        index_sib = index_sibs[0] 
-             
-
-            novoTest  = TailTest(loc,index_sib).run_novo(my_data, self.h2, my_var, my_std)
-            mendTest  = TailTest(loc,index_sib).run_mend(my_data, self.h2, my_var, my_std)
-            distTest  = TailTest(loc,index_sib).run_dist(my_data, self.h2, my_var, my_std)
-
+            novoTest  = TailTest(loc,index_sib).run_novo(my_data, h2, my_var, my_std)
+            mendTest  = TailTest(loc,index_sib).run_mend(my_data, h2, my_var, my_std)
+            distTest  = TailTest(loc,index_sib).run_dist(my_data, h2, my_var, my_std)
             self.results[vs] = TailResult(args, vs, novoTest, mendTest, distTest)  
-
+        self.arch_summary = 'Inferred Tail Architecture: lower,upper = '+self.results['0-0'].arch.split(',')[0]+','+self.results['99-99'].arch.split(',')[0] 
         return self
 
 
@@ -616,15 +630,16 @@ class TailResult:
         self.n_pv, self.m_pv, self.d_pv = nv.pv, md.pv, dt.pv 
         self.n_exp, self.n_obs = nv.exp, nv.obs
         self.m_exp, self.m_obs = md.exp, md.obs
+        
+        
+
         if self.d_pv < 0.0001: self.d_str = '%9.2e' % self.d_pv 
         else:                  self.d_str = '%9.4f' % self.d_pv 
         if self.n_pv < 0.0001: self.n_str = '%9.2e' % self.n_pv 
         else:                  self.n_str = '%9.4f' % self.n_pv 
         if self.m_pv < 0.0001: self.m_str = '%9.2e' % self.m_pv 
         else:                  self.m_str = '%9.4f' % self.m_pv 
-
         pvs = sorted([[nv.pv, 'novo'],[md.pv, 'mend'],[dt.pv, 'dist']])  
-
         if pvs[0][0]   > self.args.alpha:                            self.arch = 'polygenic'
         elif pvs[0][1] == 'dist': 
             if pvs[1][0] > self.args.alpha:    self.arch = 'undetermined' 
@@ -689,8 +704,6 @@ class TailTest:
     
 
 
-    def get_pi(self, concord_probs): 
-        pi, pt, n = np.mean(concord_probs), sum(concord_probs), len(concord_probs)
 
     def run_mend(self, tail_data, h2, h_var, h_std):
         self.size = str(len(tail_data))
@@ -698,11 +711,14 @@ class TailTest:
         idxMin, idxMax = tail_data[0][0], tail_data[-1][0]
         if self.side == 'lower':
             concord_probs = [stats.norm.cdf(idxMax, (s1*0.5*h2), h_std) for s1, s2 in tail_data]
+            self.sib_line = idxMax 
             r = sum([s2 <= idxMax for s1, s2 in tail_data])
         else:
             concord_probs = [1-stats.norm.cdf(idxMin, (s1*0.5*h2), h_std) for s1, s2 in tail_data]
+            self.sib_line = idxMin
             r = sum([s2 >= idxMin for s1, s2 in tail_data])
-                     
+        
+
         pi = np.mean(concord_probs)
         self.U = (r - n*pi) / (pi*(1-pi))
         self.I = -n / (pi*(1-pi))
@@ -759,8 +775,8 @@ class TailMax:
 
 
 class ConditionalHeritability:
-    def __init__(self, pairs):
-        self.pairs = pairs
+    def __init__(self, pairs, goals = [['All',0,99],['Bod',4,95]]):
+        self.pairs, self.goals = pairs, goals 
         self.keys = sorted(self.pairs.keys())
         self.h_range = [round(0.0 + (i*0.01), 2) for i in range(101)]
 
@@ -768,15 +784,8 @@ class ConditionalHeritability:
         self.PW = dd(lambda: dd(list))
         self.CI = dd(lambda: dd(list))
         self.set_ptwise()
-        self.run_ptwise('All')
-        self.run_ptwise('Bod', A=4, B=95)
-        self.run_ptwise('Mid', A=35, B=65)
-        self.run_ptwise('LoH', A=5, B=40)
-        self.run_ptwise('HiH', A=60, B=95)
-        self.run_ptwise('LoT', A=-1, B=3)
-        self.run_ptwise('HiT', A=96, B=101)
-        self.body = self.PW['Bod'][2] 
-        
+        for name,a,b in self.goals: self.run_ptwise(name, A=a, B=b) 
+        self.all, self.body = self.PW['All'][2], self.PW['Bod'][2] 
         for k in self.PW.keys(): 
             x,j = self.PW[k][2], self.PW[k][-1] 
             self.CI[k] = [round(x,2), round(max(x-j,0),2), round(min(x+j,1),2)]
@@ -810,8 +819,6 @@ class ConditionalHeritability:
         if my_size == '0': 
             self.PW[name] = [my_size, 0.0, 0.0, 0.5]
             return  
-        
-        
         my_estimate = sorted([[sum([sum(self.h_key[h][k]) for k in my_keys]), h] for h in self.h_key])[0][1]
         my_obs, my_lists, my_scores = [], dd(list), dd(list)
         for h in self.h_key.keys():
@@ -854,59 +861,68 @@ class SibAnalysis:
     def __init__(self, args, progress): 
         self.args, self.progress = args, progress 
         
-        if self.args.normalize: self.w = open(args.out+'.normalized.result.out','w') 
+        if self.args.normalize:  self.w = open(args.out+'.normalized.result.out','w') 
         else:                    self.w = open(args.out+'.result.out','w') 
 
 
-    def go(self,f_name, name, plot, sd, key = 'vals'): 
+    
+    def set(self,f_name, name, pairs, plot): 
+        self.f_name, self.name, self.pairs, self.plot = f_name, name, pairs, plot
+        if not self.args.normalize: self.progress.start('Analyzing Input Values') 
+        else:                       self.progress.start('Analyzing Normalized Values') 
+
+    
+    def run(self,h2_goals,tail_goals): 
+        self.progress.update('Estimating heritability...') 
+        self.h2 = ConditionalHeritability(self.pairs, h2_goals).estimate()
+        self.progress.end('h2_full,h2_body = '+str(self.h2.CI['All'][0])+','+str(self.h2.CI['Bod'][0]))         
         
-        if key == 'vals': self.progress.start('Analyzing Input Values') 
-        else:             self.progress.start('Analyzing Normalized Values') 
-        #self.name, self.pairs, self.pts = name, sd.pairs[key], sd.data[key]  
-        self.name, self.pairs = name, sd.pairs[key]
-        self.h2 = self.estimate_heritability() 
-        self.tt = self.infer_arch(self.h2.body) 
-        self.save_output(name) 
+        self.progress.update('Inferring Tail Architecture...') 
+        self.tt = TailTests(self.args, self.pairs, self.h2, tail_goals).calculate()
+        self.progress.end(self.tt.arch_summary) 
+
+        self.save_output(self.name) 
         if self.args.skipPlots: return 
         self.progress.update('Drawing Plot') 
-        plot.draw_summary(f_name, name, self.pairs, self.h2, self.tt.results) 
-        
-        #X = sorted(self.pts.keys())
-        #print(X) 
-        #print([self.pts[x][1] for x in X]) 
-        
-        #if self.args.savePlotdata:  self.save_plot_data() 
+        self.plot.draw_summary(self.f_name, self.name, self.pairs, self.h2, self.tt.results) 
 
-    def estimate_heritability(self): 
+
+
+        
+
+    def estimate_heritability(self, h2_goals): 
         self.progress.update('Estimating heritability...') 
-        h2 = ConditionalHeritability(self.pairs).estimate()
+        h2 = ConditionalHeritability(self.pairs, goals).estimate()
         self.progress.end('h2_full,h2_body = '+str(h2.CI['All'][0])+','+str(h2.CI['Bod'][0]))         
         return h2 
 
     def infer_arch(self,bodyH2): 
         self.progress.update('Inferring Tail Architecture...') 
         tt = TailTests(self.args, self.pairs, bodyH2).calculate()
+        self.progress.end(tt.arch_summary) 
         return tt 
 
 
     def save_output(self,name):
         self.progress.update('Saving Output') 
-        h_names, h_locs =    ['All','Bod','Mid','LoH','HiH','LoT','HiT'], ['0-99','5-95','35-65','5-40','60-95','0-4','96-100']
-        self.w.write('--------------------------------------- Conditional Heritability Estimates: '+name+'  ----------------------------------------------------------------------------------------\n') 
+        self.w.write('--------------------------------------- Conditional Heritability Estimates: '+name+'  --------------------------------------------------------------------------\n') 
         self.w.write('%-25s %12s %7s %9s %10s %10s %9s %9s\n' % ('traitName','sibH2','range', 'size', 'h2Init', 'h2Iter', 'h2CiLo','h2CiHi')) 
-        for k,r in zip(h_names, h_locs): 
+        
+        for k,a,b in self.h2.goals: 
             size, h2_init, h2_iter, h2_err = self.h2.PW[k] 
-            self.w.write('%-25s %12s %7s %9s %10s %10s %9s %9s\n' % (name,'sibH2',r,size,h2_init,h2_iter,self.h2.CI[k][1],self.h2.CI[k][2])) 
-        self.w.write('--------------------------------------- Inferred Tail Architecture: '+name+' ------------------------------------------------------------------------------------------------\n') 
-        self.w.write('%-25s %12s %7s %9s %10s %10s ' % ('traitName','tailTests','tail', 'size', 'idxAvg', 'distPv')) 
-        self.w.write('%9s %9s %9s %9s %9s %9s ' % ('novoPv','novoObs','novoExp','mendPv','mendObs','mendExp')) 
-        self.w.write('%9s %9s %9s\n' % ('novoRate','mendRate','polyRate'))         
+            self.w.write('%-25s %12s %7s %9s %10s %10s %9s %9s\n' % (name,'sibH2',str(a)+'-'+str(b),size,h2_init,h2_iter,self.h2.CI[k][1],self.h2.CI[k][2])) 
+
+        self.w.write('--------------------------------------- Inferred Tail Architecture: '+name+' -----------------------------------------------------------------------------------\n') 
+        self.w.write('%-25s %9s %7s %7s %10s %10s ' % ('traitName','tailTests','tail', 'size', 'idxSib', 'distPv')) 
+        self.w.write('%9s %9s %9s %9s %7s %8s ' % ('novoPv','novoObs','novoExp','mendPv','mendObs','mendExp')) 
+        self.w.write('%8s %8s %8s\n' % ('novoRate','mendRate','polyRate'))         
         tails = ['0', '0-1', '0-2', '0-3', '0-4','95-99','96-99','97-99','98-99','99'] 
-        for t in tails: 
+
+        for t,vals,loc in self.tt.goals: 
             r = self.tt.results[t] 
-            self.w.write('%-25s %12s %7s %9s %10.3f %10s ' % (name,'tailTests',t, r.size, r.index_avg, r.d_str)) 
-            self.w.write('%9s %9.3f %9.3f %9s %9d %9.3f ' % (r.n_str,r.n_obs, r.n_exp, r.m_str,r.m_obs, r.m_exp))
-            self.w.write('%9.3f %9.3f %9.3f\n' % (r.rates['novo'], r.rates['mend'], r.rates['poly'])) 
+            self.w.write('%-25s %9s %7s %7s %10.3f %10s ' % (name,'tailTests',t, r.size, r.index_avg, r.d_str)) 
+            self.w.write('%9s %9.3f %9.3f %9s %7d %8.2f ' % (r.n_str,r.n_obs, r.n_exp, r.m_str,r.m_obs, r.m_exp))
+            self.w.write('%8.3f %8.3f %8.3f\n' % (r.rates['novo'], r.rates['mend'], r.rates['poly'])) 
         self.w.write('\n') 
         return self 
 
@@ -919,18 +935,29 @@ class SibAnalysis:
 
 
 
-def run_script(file_handles, args, command_line):
+def run_script(file_handles, args, command_line, EXTEND=True):
 
-    #NAMES = ['48','30030','30070','78','30720','20015','30610'] 
-    #NK = {'30030': 'Reticulocyte_Count','30610': 'Alkaline_Phosphatase', '78': 'Heel_Bone_Mineral_Density_(BMD)', '30720': 'Cystatin_C','48': 'Waist_Circumference', '20015': 'Sitting_Height', '30070': 'RBC_Distribution_Width'}
+
+    if args.mode == 'tailsOnly': 
+        H2_GOALS = [['All',0,99],['Bod',4,95]]
+        T_GOALS    =   [[str(0)+'-'+str(i),[j for j in range(0,i+1)],0] for i in range(0,3)] + [[str(i)+'-'+str(99),[j for j in range(i,100)],1] for i in range(97,100)]
+
+    elif args.mode.upper()[0:3] == 'EXT': 
+        H2_GOALS = [['All',0,99],['Bod',4,95],['Mid',35,65],['LoH',5,40],['HiH', 60, 95],['LoT', 0, 3],['HiT', 96, 99]]
+        T_GOALS    =   [['L.25',[0.25],0],['L.50',[0.5],0]] + [[str(0)+'-'+str(i),[j for j in range(0,i+1)],0] for i in range(0,5)]
+        T_GOALS.extend([[str(i)+'-'+str(99),[j for j in range(i,100)],1] for i in range(95,100)] + [['U.50',[99.5],1],['U.25',[99.75],1]])  
+        H2_GOALS.extend([['T'+str(x),x-10,x] for x in range(10,101,10)]) 
+        T_GOALS.extend([[str(x-10)+'-'+str(x),[p for p in range(x-10,x+1)],0] for x in range(10,51,10)])
+        T_GOALS.extend([[str(x-10)+'-'+str(x),[p for p in range(x-10,x+1)],1] for x in range(60,101,10)])
+        T_GOALS.extend([[str(x),[x],0] for x in range(0,50)] + [[str(x),[x],1] for x in range(50,100)]) 
+    else:
+        sibError('Unrecognized Mode [accepted modes are tailsOnly and extended]')  
+
     progress = SibProgress(args,command_line) 
 
     if len(args.names) < len(args.sibfiles): 
         for i,sf in enumerate(args.sibfiles): 
             if i < len(args.names): continue 
-            #elif sf.name.split('/')[-1].split('-')[0] in NAMES: 
-            #    args.names.append(NK[sf.name.split('/')[-1].split('-')[0]]) 
-            #elif 5 < 8: args.names.append(NK[NAMES[i]]) 
             elif len(sf.name.split('/')[-1].split('.')) > 1: args.names.append(".".join(sf.name.split('/')[-1].split('.')[0:-1]).split('-')[0]) 
             else:                                            args.names.append(sf.name.split('/')[-1].split('-')[0]) 
     
@@ -938,13 +965,15 @@ def run_script(file_handles, args, command_line):
     sibAnalysis = SibAnalysis(args, progress)  
     sibPlot     = SibPlot(args, progress) 
     
-    for i,(f_handle,f_name) in enumerate(zip(args.sibfiles, args.names)): 
-        progress.update('Reading Sibling Data for Trait '+f_name.lower().capitalize()) 
+    for i,(f_handle,trait_name) in enumerate(zip(args.sibfiles, args.names)): 
+        progress.update('Reading Sibling Data for Trait '+trait_name.lower().capitalize()) 
         fd = SibData(f_handle, args)
-        progress.end(str(len(fd.fams))+' siblings pairs found')     
-        if not args.normalize: vA = sibAnalysis.go(f_handle.name.split('/')[-1], f_name, sibPlot, fd, key='vals') 
-        else:                  nA = sibAnalysis.go(f_handle.name.split('/')[-1], f_name, sibPlot, fd, key = 'norm') 
-        
+        t,s,k = len(fd.fams), fd.skew, fd.kurtosis 
+        progress.end(str(t)+' sib-pairs, skew='+str(round(s,2))+', ex.kurtosis='+str(round(k,2)),CHECK=['VDATA',[t,s,k]]) 
+        if t < 10: sibError('Insuffient Data')
+        sibAnalysis.set(f_handle.name.split('/')[-1], trait_name, fd.pairs, sibPlot) 
+        sibAnalysis.run(H2_GOALS,T_GOALS) 
+    
         if not args.skipPlots and i > 0 and i % 5 == 0: sibPlot.reset(len(args.names) - (i+1)) 
     if not args.skipPlots and (i%5 != 0 or i ==0): sibPlot.finish() 
     progress.finish() 
@@ -960,7 +989,7 @@ if __name__ == '__main__':
     parser.add_argument('sibfiles',nargs='+',type=argparse.FileType('r')) 
     parser.add_argument("--names", nargs='+',default=[],type=str,help="Trait Name(s)")
     parser.add_argument("--out", type=str,default='tailArc',help="Output Prefix")
-    parser.add_argument("--nn", type=str,help="Trait Nick Name",metavar='')
+    parser.add_argument("--mode", type=str,default='tailsOnly',help="Output Prefix")
     parser.add_argument("--alpha", type=float,default=0.01,help="Cutoff to Identify Complex Architecture",metavar='') 
     parser.add_argument("--skipPlots", action='store_true', default=False,help="Skip Plotting")
     parser.add_argument("--savePlotdata", action='store_true', default=False,help="Save Plotting Data") 
